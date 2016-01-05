@@ -27,4 +27,5 @@ class TaigaContribGithubAuthAppConfig(AppConfig):
 
     def ready(self):
         register_auth_plugin("github", services.github_login_func)
+        register_auth_plugin("gitlab", services.gitlab_login_func)
 

@@ -39,10 +39,20 @@ CLIENT_SECRET = getattr(settings, "GITHUB_API_CLIENT_SECRET", None)
 
 URL = getattr(settings, "GITHUB_URL", "https://github.com/")
 API_URL = getattr(settings, "GITHUB_API_URL",  "https://api.github.com/")
+
+GITLAB_CLIENT_ID = getattr(settings, "GITLAB_API_CLIENT_ID", None)
+GITLAB_CLIENT_SECRET = getattr(settings, "GITLAB_API_CLIENT_SECRET", None)
+
+GITLAB_URL = getattr(settings, "GITLAB_URL", "https://gitlab.com/")
+GITLAB_API_URL = getattr(settings, "GITLAB_API_URL",  "https://gitlab.com/api/v3/")
 API_RESOURCES_URLS = {
     "login": {
         "authorize": "login/oauth/authorize",
         "access-token": "login/oauth/access_token"
+    },
+    "login-gitlab": {
+        "authorize": "oauth/authorize",
+        "access-token": "oauth/token"
     },
     "user": {
         "profile": "user",
@@ -54,7 +64,7 @@ API_RESOURCES_URLS = {
 HEADERS = {"Accept": "application/json",}
 
 AuthInfo = namedtuple("AuthInfo", ["access_token"])
-User = namedtuple("User", ["id", "username", "full_name", "bio"])
+User = namedtuple("User", ["id", "username", "full_name", "bio", "email"])
 Email = namedtuple("Email", ["email", "is_primary"])
 
 
@@ -125,6 +135,26 @@ def login(access_code:str, client_id:str=CLIENT_ID, client_secret:str=CLIENT_SEC
     data = _post(url, params=params, headers=headers)
     return AuthInfo(access_token=data.get("access_token", None))
 
+def login_gitlab(access_code:str, client_id:str=CLIENT_ID, client_secret:str=CLIENT_SECRET,
+                 headers:dict=HEADERS):
+    """
+    Get access_token fron an user authorized code, the client id and the client secret key.
+    (See https://developer.github.com/v3/oauth/#web-application-flow).
+    """
+    if not CLIENT_ID or not CLIENT_SECRET:
+        raise GitHubApiError({"error_message": _("Login with github account is disabled. Contact "
+                                                     "with the sysadmins. Maybe they're snoozing in a "
+                                                     "secret hideout of the data center.")})
+
+    url = urljoin(URL, "oauth/token")
+    params={"code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "authorization_code",
+            "redirect_uri": "redirect_uri"}
+    data = _post(url, params=params, headers=headers)
+    return AuthInfo(access_token=data.get("access_token", None))
+
 
 def get_user_profile(headers:dict=HEADERS):
     """
@@ -135,6 +165,19 @@ def get_user_profile(headers:dict=HEADERS):
     data = _get(url, headers=headers)
     return User(id=data.get("id", None),
                 username=data.get("login", None),
+                full_name=(data.get("name", None) or ""),
+                bio=(data.get("bio", None) or ""))
+
+def get_user_profile_gitlab(headers:dict=HEADERS):
+    """
+    Get authenticated user info.
+    (See https://developer.github.com/v3/users/#get-the-authenticated-user).
+    """
+    url = _build_url("user", "profile")
+    data = _get(url, headers=headers)
+    return User(id=data.get("id", None),
+                username=data.get("username", None),
+                email=data.get("email", None),
                 full_name=(data.get("name", None) or ""),
                 bio=(data.get("bio", None) or ""))
 
@@ -168,4 +211,17 @@ def me(access_code:str) -> tuple:
 
     primary_email = next(filter(lambda x: x.is_primary, emails))
     return primary_email.email, user
+
+def me_gitlab(access_code:str) -> tuple:
+    """
+    Connect to a gitlab account and get all personal info (profile and the primary email).
+    """
+    auth_info = login_gitlab(access_code)
+
+    headers = HEADERS.copy()
+    headers["Authorization"] = "Bearer " + auth_info.access_token
+
+    user = get_user_profile_gitlab(headers=headers)
+
+    return user.email, user
 
